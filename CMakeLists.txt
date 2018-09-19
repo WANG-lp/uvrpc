@@ -19,12 +19,12 @@ if (${LIBUV_FOUND})
     include_directories(${LIBUV_INCLUDE_DIR})
 endif ()
 
-add_library(uvrpc SHARED src/uvrpc.c src/uvrpc.h src/utils/blockQueue.h src/utils/blockQueue.c)
+add_library(uvrpc SHARED src/uvrpc.c src/uvrpc.h src/utils/blockQueue.h src/utils/blockQueue.c src/utils/int2bytes.h src/utils/int2bytes.c)
 target_link_libraries(uvrpc ${LIBUV_LIBRARIES} Threads::Threads)
 
-add_executable(uvrpc_server src/test/uvrpc_server_test.c src/utils/int2bytes.h src/utils/int2bytes.c)
+add_executable(uvrpc_server src/test/uvrpc_server_test.c src/uvrpc.h)
 target_link_libraries(uvrpc_server uvrpc)
 
-add_executable(uvrpc_client src/test/uvrpc_client_test.c src/utils/int2bytes.h src/utils/int2bytes.c)
+add_executable(uvrpc_client src/test/uvrpc_client_test.c src/uvrpc.h)
 target_link_libraries(uvrpc_client uvrpc)
 

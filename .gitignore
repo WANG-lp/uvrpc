@@ -1,3 +1,5 @@
+build/
+3rd-deps/libuv
 .idea/
 cmake-build-debug/
 
