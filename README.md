@@ -1,16 +1,16 @@
-# UVRPC - RPC library based on [libuv](https://github.com/libuv/libuv)
+# UVRPC - A very fast RPC library based on [libuv](https://github.com/libuv/libuv)
 
 ## Why UVRPC (Motivation) ?
 
-libuv is my favorite asyncIO library, RPC is an essential building block in my project.
+libuv is my favorite network library, RPC is an essential building block in my project.
 
 UVRPC aims to provide a very fast and simple RPC abstraction.
 
 ## How to use it?
 
-UVRPC provides only few functions, but can fulfilled most of your requirements.
+UVRPC only provide few functions, but can fulfilled most of your requirements.
 
-Function lists:
+Function list:
 
 
 ```c
@@ -26,7 +26,7 @@ int run_server_forever(uvrpcs_t *server);
 // register a RPC-procedure to this server, associate it to a function magic code (0-254) 
 int register_function(uvrpcs_t *uvrpc_server, unsigned char magic, int32_t (*func)(const char *, size_t));
 
-// stop this server (not implemented currently)
+// stop this server (not implemented yet)
 int stop_server(uvrpcs_t *uvrpc_server);
 
 // create a client with custom ip, port and thread number
@@ -35,7 +35,7 @@ uvrpcc_t *start_client(char *server_ip, int port, int thread_num);
 // call a RPC-procedure (via magic code) with a provided buffer
 int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id);
 
-// stop this client (not implemented currently)
+// stop this client (not implemented yet)
 int stop_client(uvrpcc_t *client);
 
 // get built-in error message
@@ -45,10 +45,11 @@ char *uvrpc_errstr(int uvrpc_errno);
 ## Examples
 
 Following is a server example, it registers 3 functions with magic code 0, 1 and 255, respectively. 
-The last one (255) is failed to register because the allowed magic code is [0,244], magic code 255 has been reserved
+The last one (255) is failed to register because the allowed magic code is [0, 254], magic code 255 has been reserved
 for a built-in error indicate function.
 
 server.c
+
 ```c
 /**
  * Copyright 2018 Lipeng WANG (wang.lp@outlook.com)
@@ -105,7 +106,9 @@ int main(int argc, char **argv) {
 ```
 
 
-client.c
+Following is a client example, it calls 3 RPC-procedures(magic code 0-2) randomly . Magic code 2 is not registered. Calling an unregistered function gives a return code 255. 
+
+client.c 
 
 ```c
 /**
