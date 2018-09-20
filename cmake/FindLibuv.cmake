@@ -21,7 +21,7 @@
 
 FIND_PATH(LIBUV_INCLUDE_DIR NAMES uv.h
         HINTS ${CMAKE_CURRENT_SOURCE_DIR}/3rd-deps/libuv/include /usr/local/libuv/include /usr/include)
-FIND_LIBRARY(LIBUV_LIBRARIES NAMES uv libuv HINTS ${CMAKE_CURRENT_SOURCE_DIR}/3rd-deps/libuv/lib /usr/local/libuv/lib /usr/lib)
+FIND_LIBRARY(LIBUV_LIBRARIES NAMES uv libuv HINTS ${CMAKE_CURRENT_SOURCE_DIR}/3rd-deps/libuv/lib /usr/local/libuv/lib /usr/lib /usr/lib64)
 
 if(WIN32)
   list(APPEND LIBUV_LIBRARIES iphlpapi)
