@@ -28,3 +28,7 @@ target_link_libraries(uvrpc_server uvrpc)
 add_executable(uvrpc_client src/test/uvrpc_client_test.c src/uvrpc.h)
 target_link_libraries(uvrpc_client uvrpc)
 
+add_executable(uvrpc_server_blackhole src/test/uvrpc_server_file_blackhole.c src/uvrpc.h)
+target_link_libraries(uvrpc_server_blackhole uvrpc)
+add_executable(uvrpc_client_blackhole src/test/uvrpc_client_file_blackhole.c src/uvrpc.h)
+target_link_libraries(uvrpc_client_blackhole uvrpc)

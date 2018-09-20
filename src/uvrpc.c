@@ -143,6 +143,9 @@ void reuse_server_thread_buffer(uv_handle_t *handle, size_t suggested_size, uv_b
 }
 
 void _server_after_write_response(uv_write_t *write_req, int status) {
+    if(status!=0){
+        printf("write back to client error: %s\n", uv_strerror(status));
+    }
     free(write_req->data);
     free(write_req);
 }
@@ -161,6 +164,7 @@ void _server_run_func(uv_stream_t *stream, _uv_rpc_server_connection_t *client_c
     uv_write_t *write_req = malloc(sizeof(uv_write_t));
     write_req->data = result;
     uv_buf_t buf1 = uv_buf_init(result, 15);
+    
     uv_write(write_req, stream, &buf1, 1, _server_after_write_response);
     _free_msg(msg);
     client_connection->msg = NULL;
@@ -330,6 +334,8 @@ void _client_after_read_result(uv_stream_t *stream, ssize_t nread, const uv_buf_
         uint64_t req_id = bytes_to_uint64((unsigned char *) (client_thread_data->buf + 3));
         int32_t result = (int32_t) bytes_to_uint32((unsigned char *) (client_thread_data->buf + 11));
 
+        //printf("func_if: %d, req_id: %ld, ret_code: %d\n", func_id, req_id, result);
+
         uv_mutex_lock(client_thread_data->result_mutex);
         client_thread_data->result_req_id = req_id;
         client_thread_data->ret_result = result;
@@ -356,8 +362,10 @@ void _uvrpc_client_on_connection(uv_connect_t *connection, int status) {
         printf("connected to server\n");
         connection->handle->data = client_thread_data;
         uv_read_start(connection->handle, reuse_client_thread_buffer, _client_after_read_result);
-        client_thread_data->ret_result = 255;
-        uv_cond_broadcast(client_thread_data->result_cond);
+        if(client_thread_data->result_req_id < INT64_MAX) {
+            client_thread_data->ret_result = 255;
+            uv_cond_broadcast(client_thread_data->result_cond);
+        }
     } else {
         printf("server not ready, retry in 1s...\n");
         sleep(1);
