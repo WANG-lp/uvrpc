@@ -9,6 +9,7 @@
 #include <string.h>
 
 static __thread size_t total_size = 0;
+
 int32_t file_blackhole(const char *buf, size_t length) {
     total_size += length;
 
@@ -18,7 +19,7 @@ int32_t file_blackhole(const char *buf, size_t length) {
 
 int main(int argc, char **argv) {
 
-    if(argc < 2){
+    if (argc < 2) {
         printf("Usage: %s 8080\n", argv[0]);
         exit(1);
     }

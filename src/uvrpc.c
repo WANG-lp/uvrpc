@@ -164,7 +164,7 @@ void _server_run_func(uv_stream_t *stream, _uv_rpc_server_connection_t *client_c
     uv_write_t *write_req = malloc(sizeof(uv_write_t));
     write_req->data = result;
     uv_buf_t buf1 = uv_buf_init(result, 15);
-    
+
     uv_write(write_req, stream, &buf1, 1, _server_after_write_response);
     _free_msg(msg);
     client_connection->msg = NULL;

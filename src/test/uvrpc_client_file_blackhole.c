@@ -6,18 +6,21 @@
 #include <pthread.h>
 #include <stdlib.h>
 
+#define FILE_SIZE (1L * 1024 * 1024 * 1024 + 1)
+
 int main(int argc, char **argv) {
-    if(argc < 3){
+    if (argc < 3) {
         printf("Usage: %s server_ip server_port\n", argv[0]);
         exit(1);
     }
     uvrpcc_t *uvrpcc = start_client(argv[1], atoi(argv[2]), 1);
 
-    char buf[] = "hello, world!";
+    char *buf = malloc(sizeof(char) * FILE_SIZE);
 
-    int ret = uvrpc_send(uvrpcc, buf, 13, 1);
-    printf("ret: %d\n", ret);
-
+    for (int i = 0; i < 100; i++) {
+        int ret = uvrpc_send(uvrpcc, buf, FILE_SIZE, 1);
+        printf("ret: %d\n", ret);
+    }
     //sleep(3);
     return 0;
 }
