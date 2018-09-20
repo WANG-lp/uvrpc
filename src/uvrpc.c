@@ -394,9 +394,7 @@ void client_cb(void *args) {
 }
 
 void _client_after_send(uv_write_t *write1, int status) {
-    if (status == 0) {
-        printf("write to server successful\n");
-    } else {
+    if (status != 0) {
         printf("write to server failed. %s\n", uv_strerror(status));
     }
     free(write1);
