@@ -33,9 +33,10 @@ int stop_server(uvrpcs_t *uvrpc_server);
 uvrpcc_t *start_client(char *server_ip, int port, int thread_num);
 
 // call a RPC-procedure (via magic code) with a provided buffer
+// This function is thread-safe (you can invoke it concurrently).
 int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id);
 
-// stop this client (not implemented yet)
+// stop this client
 int stop_client(uvrpcc_t *client);
 
 // get built-in error message
@@ -136,6 +137,49 @@ int main(int argc, char **argv) {
     }
     return 0;
 }
+```
+
+## Valgrind tests
+valgrind is a memory leak test tool, we use it to test any memory leak in our program.
+If you want to use valgrind, please compile this project with `-g -O1` instead of `-O2`,
+otherwise, valgrind could not give you the correct line number of the source code. 
+ 
+Following is the test results of the client side:
+```bash
+➜  cmake-build-debug git:(master) ✗ valgrind --leak-check=yes ./uvrpc_client localhost 8080
+==26867== Memcheck, a memory error detector
+==26867== Copyright (C) 2002-2017, and GNU GPL'd, by Julian Seward et al.
+==26867== Using Valgrind-3.14.0.GIT and LibVEX; rerun with -h for copyright info
+==26867== Command: ./uvrpc_client localhost 8080
+==26867== 
+wait for server ready...
+wait for server ready...
+wait for server ready...
+wait for server ready...
+connected to server
+connected to server
+connected to server
+connected to server
+ret: 1
+ret: 1
+ret: 0
+ret: 0
+ret: 0
+ret: 255
+ret: 255
+ret: 255
+ret: 255
+ret: 1
+==26867== 
+==26867== HEAP SUMMARY:
+==26867==     in use at exit: 0 bytes in 0 blocks
+==26867==   total heap usage: 75 allocs, 75 frees, 29,152 bytes allocated
+==26867== 
+==26867== All heap blocks were freed -- no leaks are possible
+==26867== 
+==26867== For counts of detected and suppressed errors, rerun with: -v
+==26867== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+
 ```
 
 ## License

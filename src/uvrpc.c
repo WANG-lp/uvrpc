@@ -31,6 +31,7 @@ struct _uvrpc_client_thread_s {
     size_t max_length;
     size_t current_length;
 
+    uv_async_t *async_stop_t;
     uv_async_t *async_t;
     char *send_buf;
     size_t send_length;
@@ -143,7 +144,7 @@ void reuse_server_thread_buffer(uv_handle_t *handle, size_t suggested_size, uv_b
 }
 
 void _server_after_write_response(uv_write_t *write_req, int status) {
-    if(status!=0){
+    if (status != 0) {
         printf("write back to client error: %s\n", uv_strerror(status));
     }
     free(write_req->data);
@@ -252,7 +253,8 @@ void server_cb(void *data) {
     int optval = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
     uv_tcp_nodelay(uvrpc_thread_data->tcp_server, 1);
-    int r = uv_tcp_bind(uvrpc_thread_data->tcp_server, (const struct sockaddr *) uvrpc_thread_data->uvrpcs->base.addr, 0);
+    int r = uv_tcp_bind(uvrpc_thread_data->tcp_server, (const struct sockaddr *) uvrpc_thread_data->uvrpcs->base.addr,
+                        0);
     if (r) {
         goto __UVRPC_L_ERROR;
     }
@@ -313,6 +315,7 @@ int register_function(uvrpcs_t *uvrpc_server, unsigned char magic, int32_t (*fun
 int stop_server(uvrpcs_t *uvrpc_server) {
     return 0;
 }
+
 void _uvrpc_client_test_server_connection(_uvrpc_client_thread_t *client_thread_data);
 
 void _client_after_read_result(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -348,11 +351,14 @@ void _client_after_read_result(uv_stream_t *stream, ssize_t nread, const uv_buf_
         if (nread != UV_EOF) {
             printf("Read error %s\n", uv_strerror(nread));
         }
-        uv_close((uv_handle_t *) stream, _free_handle);
+        if (!uv_is_closing((const uv_handle_t *) stream))
+            uv_close((uv_handle_t *) stream, _free_handle);
         client_thread_data->current_length = 0;
+
         printf("lost connection, retry...\n");
 //        sleep(1);
         _uvrpc_client_test_server_connection(client_thread_data);
+
     }
 }
 
@@ -362,7 +368,7 @@ void _uvrpc_client_on_connection(uv_connect_t *connection, int status) {
         printf("connected to server\n");
         connection->handle->data = client_thread_data;
         uv_read_start(connection->handle, reuse_client_thread_buffer, _client_after_read_result);
-        if(client_thread_data->result_req_id < INT64_MAX) {
+        if (client_thread_data->result_req_id < INT64_MAX) {
             client_thread_data->ret_result = 255;
             uv_cond_broadcast(client_thread_data->result_cond);
         }
@@ -410,12 +416,19 @@ void async_send_to_server(uv_async_t *handle) {
     uv_write(write_req, (uv_stream_t *) client_thread_data->tcp_server, &uvbuf, 1, _client_after_send);
 }
 
+void async_send_stop(uv_async_t *handle) {
+    _uvrpc_client_thread_t *client_thread_data = handle->data;
+    uv_stop(client_thread_data->work_loop);
+}
+
+
 uvrpcc_t *start_client(char *server_URL, int port, int thread_num) {
     uv_mutex_init(&global_mutex);
     global_count = 0;
 
     uvrpcc_t *uvrpc_client = malloc(sizeof(uvrpcc_t));
     uvrpc_client->base.thread_count = thread_num;
+    uvrpc_client->base.thread_data = malloc(sizeof(void *) * thread_num);
     uvrpc_client->base.tids = malloc(sizeof(uv_thread_t) * thread_num);
     uvrpc_client->base.addr = malloc(sizeof(struct sockaddr_storage));
     uvrpc_client->bq = init_blockQueue(thread_num);
@@ -437,10 +450,15 @@ uvrpcc_t *start_client(char *server_URL, int port, int thread_num) {
         client_thread_data->max_length = MAX_TCP_BUFFER_SIZE;
         client_thread_data->current_length = 0;
         uv_thread_create(&(uvrpc_client->base.tids[i]), client_cb, client_thread_data);
+        uvrpc_client->base.thread_data[i] = client_thread_data;
         bq_push(uvrpc_client->bq, client_thread_data);
         client_thread_data->async_t = malloc(sizeof(uv_async_t));
         client_thread_data->async_t->data = client_thread_data;
         uv_async_init(client_thread_data->work_loop, client_thread_data->async_t, async_send_to_server);
+
+        client_thread_data->async_stop_t = malloc(sizeof(uv_async_t));
+        client_thread_data->async_stop_t->data = client_thread_data;
+        uv_async_init(client_thread_data->work_loop, client_thread_data->async_stop_t, async_send_stop);
     }
     return uvrpc_client;
 }
@@ -490,7 +508,43 @@ int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id
     return result;
 }
 
+void _uv_walk_close_all(uv_handle_t *handle, void *args) {
+    if (!uv_is_closing(handle))
+        uv_close(handle, _free_handle);
+}
+
 int stop_client(uvrpcc_t *client) {
+    for (int i = 0; i < client->base.thread_count; i++) {
+        _uvrpc_client_thread_t *client_thread_data = client->base.thread_data[i];
+        uv_async_send(client_thread_data->async_stop_t);
+        uv_thread_join(&(client->base.tids[i]));
+
+        uv_walk(client_thread_data->work_loop, _uv_walk_close_all, NULL);
+        uv_run(client_thread_data->work_loop,
+               UV_RUN_DEFAULT);// run this work loop again. If no more events, it will exit automatically.
+        int ret = uv_loop_close(client_thread_data->work_loop);
+        if (ret) {
+            printf("%s\n", uv_strerror(ret));
+        }
+
+        uv_cond_destroy(client_thread_data->result_cond);
+        free(client_thread_data->result_cond);
+        uv_mutex_destroy(client_thread_data->result_mutex);
+        free(client_thread_data->result_mutex);
+        free(client_thread_data->buf);
+
+        free(client_thread_data->server_conn);
+        free(client_thread_data->work_loop);
+        free(client_thread_data);
+
+    }
+
+    free(client->base.tids);
+    free(client->base.addr);
+    free(client->base.thread_data);
+    free_blockQueue(client->bq);
+    free(client);
+
     return 0;
 }
 
@@ -499,7 +553,7 @@ char *uvrpc_errstr(int uvrpc_errno) {
         case 0:
             return "no error was found";
         case 255:
-            return "requested function was not register";
+            return "requested function was not registered";
         case 0xee00:
             return "register function failed: magic code out of range";
         case 0xee01:

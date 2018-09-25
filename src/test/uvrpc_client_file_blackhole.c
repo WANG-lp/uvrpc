@@ -7,9 +7,10 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
+#include <string.h>
 
 #define FILE_SIZE (4L*1024*1024)
-#define ITER_NUM (10000L)
+#define ITER_NUM (1000L)
 
 int64_t get_wall_time() {
     struct timeval time;
@@ -29,6 +30,7 @@ int main(int argc, char **argv) {
     uvrpcc_t *uvrpcc = start_client(argv[1], atoi(argv[2]), 1);
 
     char *buf = malloc(sizeof(char) * FILE_SIZE);
+    memset(buf, 0, sizeof(char) * FILE_SIZE);
 
     int64_t start_time = get_wall_time();
     for (size_t i = 0; i < ITER_NUM; i++) {
@@ -45,9 +47,10 @@ int main(int argc, char **argv) {
 
     double total_time_in_ms = (end_time - start_time) / 1000.0;
 
-    printf("time: %.3lfms, send size: %ld, speed: %.3lfGB/s\n", total_time_in_ms, ITER_NUM * FILE_SIZE,
+    printf("Total time: %.3lfms, send size: %ld, speed: %.3lfGB/s\n", total_time_in_ms, ITER_NUM * FILE_SIZE,
            ((double) ITER_NUM * FILE_SIZE / (1024 * 1024 * 1024)) / (total_time_in_ms / 1000.0));
 
-    //sleep(3);
+    stop_client(uvrpcc);
+    free(buf);
     return 0;
 }
