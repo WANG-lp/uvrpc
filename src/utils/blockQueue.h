@@ -6,13 +6,15 @@
 
 #include <uv.h>
 
-typedef struct {
+struct blockQueue_s{
     uv_mutex_t *mutex;
     uv_cond_t *cond;
     size_t head, tail, max_size;
     int tail_ahead;
     void **item_array;
-} blockQueue;
+};
+
+typedef struct blockQueue_s blockQueue;
 
 blockQueue *init_blockQueue(int size);
 

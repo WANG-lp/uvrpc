@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
     char buf[] = "hello, world!";
     srand(time(NULL));
 
-    for (int i = 0; i < 1000000; i++) {
+    for (int i = 0; i < 10; i++) {
         int rand_n = rand();
         unsigned char func_id;
 
@@ -135,6 +135,8 @@ int main(int argc, char **argv) {
         int ret = uvrpc_send(uvrpcc, buf, 13, func_id);
         printf("ret: %d\n", ret);
     }
+
+    stop_client(uvrpcc);
     return 0;
 }
 ```

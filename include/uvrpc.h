@@ -6,7 +6,8 @@
 
 #include <stdlib.h>
 #include <uv.h>
-#include "./utils/blockQueue.h"
+
+struct blockQueue_s;
 
 #define UVRPC_MAGIC (0xcffe)
 
@@ -30,7 +31,7 @@ struct uvrpcs_s {
 //client object
 struct uvrpcc_s {
     struct uvrpc_s base;
-    blockQueue *bq;
+    struct blockQueue_s *bq;
 };
 
 typedef struct uvrpcs_s uvrpcs_t; // the server handle
