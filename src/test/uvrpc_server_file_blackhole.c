@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    uvrpcs_t *uvrpcs = init_server("0.0.0.0", atoi(argv[1]), 1);
+    uvrpcs_t *uvrpcs = start_server("0.0.0.0", atoi(argv[1]), 1);
 
     int ret = register_function(uvrpcs, 1, file_blackhole);
     if (ret) {
@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
     }
 
     //start the server forever!
-    run_server_forever(uvrpcs);
+    wait_server_forever(uvrpcs);
 
     return 0;
 }

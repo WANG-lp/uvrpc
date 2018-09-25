@@ -20,6 +20,8 @@ struct _uvrpc_server_thread_s {
     int thread_id;
     uv_loop_t *work_loop;
     uv_tcp_t *tcp_server;
+
+    uv_async_t *async_stop_t;
 };
 
 struct _uvrpc_client_thread_s {
@@ -79,23 +81,6 @@ _uvrpc_server_msg_t *_make_new_msg(uint64_t req_id, size_t size, unsigned char f
     msg->buf_max_length = size;
     msg->current_length = 0;
     msg->func_id = func_id;
-    return msg;
-
-    __UVRPC_A_ERROR:
-    printf("cannot alloc new buffer\n");
-    return NULL;
-}
-
-_uvrpc_server_msg_t *_warp_msg(uint64_t req_id, char *buf, size_t length) {
-    _uvrpc_server_msg_t *msg = malloc(sizeof(_uvrpc_server_msg_t));
-    if (msg == NULL) {
-        goto __UVRPC_A_ERROR;
-    }
-    msg->buf = buf;
-    msg->req_id = req_id;
-    msg->buf_max_length = length;
-    msg->current_length = length;
-    msg->func_id = 0;
     return msg;
 
     __UVRPC_A_ERROR:
@@ -214,7 +199,8 @@ void _server_read_msg_data(uv_stream_t *stream, ssize_t nread, const uv_buf_t *b
         if (nread != UV_EOF) {
             printf("Read error %s\n", uv_strerror(nread));
         }
-        uv_close((uv_handle_t *) stream, _close_server_connection);
+        if (!uv_is_closing((const uv_handle_t *) stream))
+            uv_close((uv_handle_t *) stream, _close_server_connection);
     }
 }
 
@@ -244,10 +230,6 @@ void _server_on_new_connection(uv_stream_t *server, int status) {
 void server_cb(void *data) {
     _uvrpc_server_thread_t *uvrpc_thread_data = data;
     printf("server thread %d started\n", uvrpc_thread_data->thread_id);
-    uvrpc_thread_data->tcp_server = malloc(sizeof(uv_tcp_t));
-    uvrpc_thread_data->work_loop = malloc(sizeof(uv_loop_t));
-    uv_loop_init(uvrpc_thread_data->work_loop);
-    uvrpc_thread_data->uvrpcs->base.work_loops[uvrpc_thread_data->thread_id] = uvrpc_thread_data->work_loop;
 
     uv_tcp_init_ex(uvrpc_thread_data->work_loop, uvrpc_thread_data->tcp_server, AF_INET);
     uv_os_fd_t fd = uvrpc_thread_data->tcp_server->io_watcher.fd;
@@ -257,12 +239,12 @@ void server_cb(void *data) {
     int r = uv_tcp_bind(uvrpc_thread_data->tcp_server, (const struct sockaddr *) uvrpc_thread_data->uvrpcs->base.addr,
                         0);
     if (r) {
-        goto __UVRPC_L_ERROR;
+        printf("ERROR: %s\n", uv_strerror(r));
+        exit(1);
     }
     uvrpc_thread_data->tcp_server->data = uvrpc_thread_data;
     r = uv_listen((uv_stream_t *) uvrpc_thread_data->tcp_server, DEFAULT_BACKLOG, _server_on_new_connection);
 
-    __UVRPC_L_ERROR:
     if (r) {
         printf("ERROR: %s\n", uv_strerror(r));
         exit(1);
@@ -270,34 +252,48 @@ void server_cb(void *data) {
     uv_run(uvrpc_thread_data->work_loop, UV_RUN_DEFAULT);
 }
 
+void async_send_stop_loop(uv_async_t *handle) {
+    uv_loop_t *work_loop = handle->data;
+    uv_stop(work_loop);
+}
+
 int32_t __return_error(const char *buf, size_t length) {
     return 255;
 }
 
-uvrpcs_t *init_server(char *ip, int port, int thread_num) {
+uvrpcs_t *start_server(char *ip, int port, int thread_num) {
     uvrpcs_t *server = malloc(sizeof(uvrpcs_t));
     memset(server->register_func_table, 0, sizeof(int32_t (*[256])(char *, size_t)));
     server->base.tids = malloc(sizeof(uv_thread_t) * thread_num);;
     server->base.thread_count = thread_num;
-    server->base.work_loops = malloc(sizeof(uv_loop_t *) * thread_num);
+    server->base.thread_data = malloc(sizeof(void *) * thread_num);
     server->base.addr = malloc(sizeof(struct sockaddr_storage));
+    server->status = 0;
 
     uv_ip4_addr(ip, port, (struct sockaddr_in *) server->base.addr);
 
     for (int i = 0; i < thread_num; i++) {
-        _uvrpc_server_thread_t *uvrpc_server = malloc(sizeof(_uvrpc_server_thread_t));
-        uvrpc_server->thread_id = i;
-        uvrpc_server->uvrpcs = server;
-        uv_thread_create(&(server->base.tids[i]), server_cb, uvrpc_server);
+        _uvrpc_server_thread_t *uvrpc_server_data = malloc(sizeof(_uvrpc_server_thread_t));
+        uvrpc_server_data->thread_id = i;
+        uvrpc_server_data->uvrpcs = server;
+        uvrpc_server_data->tcp_server = malloc(sizeof(uv_tcp_t));
+        uvrpc_server_data->work_loop = malloc(sizeof(uv_loop_t));
+        uv_loop_init(uvrpc_server_data->work_loop);
+        server->base.thread_data[i] = uvrpc_server_data;
+        uv_thread_create(&(server->base.tids[i]), server_cb, uvrpc_server_data);
+        uvrpc_server_data->async_stop_t = malloc(sizeof(uv_async_t));
+        uvrpc_server_data->async_stop_t->data = uvrpc_server_data->work_loop;
+        uv_async_init(uvrpc_server_data->work_loop, uvrpc_server_data->async_stop_t, async_send_stop_loop);
     }
     server->register_func_table[255] = __return_error;
     return server;
 }
 
-int run_server_forever(uvrpcs_t *server) {
+int wait_server_forever(uvrpcs_t *server) {
     for (int i = 0; i < server->base.thread_count; i++) {
         uv_thread_join(&(server->base.tids[i]));
     }
+    server->status = 1;
     return 0;
 }
 
@@ -313,7 +309,36 @@ int register_function(uvrpcs_t *uvrpc_server, unsigned char magic, int32_t (*fun
     }
 }
 
+void _uv_walk_close_all(uv_handle_t *handle, void *args) {
+    if (!uv_is_closing(handle))
+        uv_close(handle, _free_handle);
+}
+
 int stop_server(uvrpcs_t *uvrpc_server) {
+    for (int i = 0; i < uvrpc_server->base.thread_count; i++) {
+        _uvrpc_server_thread_t *uvrpc_server_thread_data = uvrpc_server->base.thread_data[i];
+
+        uv_async_send(uvrpc_server_thread_data->async_stop_t);
+
+        uv_walk(uvrpc_server_thread_data->work_loop, _uv_walk_close_all, NULL);
+        while (uvrpc_server->status == 0) {};
+
+        uv_run(uvrpc_server_thread_data->work_loop,
+               UV_RUN_DEFAULT);// run this work loop again. If no more events, it will exit automatically.
+        int ret = uv_loop_close(uvrpc_server_thread_data->work_loop);
+        if (ret) {
+            printf("%s\n", uv_strerror(ret));
+        }
+
+        free(uvrpc_server_thread_data->work_loop);
+        free(uvrpc_server_thread_data);
+    }
+
+    free(uvrpc_server->base.tids);
+    free(uvrpc_server->base.addr);
+    free(uvrpc_server->base.thread_data);
+    free(uvrpc_server);
+
     return 0;
 }
 
@@ -417,12 +442,6 @@ void async_send_to_server(uv_async_t *handle) {
     uv_write(write_req, (uv_stream_t *) client_thread_data->tcp_server, &uvbuf, 1, _client_after_send);
 }
 
-void async_send_stop(uv_async_t *handle) {
-    _uvrpc_client_thread_t *client_thread_data = handle->data;
-    uv_stop(client_thread_data->work_loop);
-}
-
-
 uvrpcc_t *start_client(char *server_URL, int port, int thread_num) {
     uv_mutex_init(&global_mutex);
     global_count = 0;
@@ -458,8 +477,8 @@ uvrpcc_t *start_client(char *server_URL, int port, int thread_num) {
         uv_async_init(client_thread_data->work_loop, client_thread_data->async_t, async_send_to_server);
 
         client_thread_data->async_stop_t = malloc(sizeof(uv_async_t));
-        client_thread_data->async_stop_t->data = client_thread_data;
-        uv_async_init(client_thread_data->work_loop, client_thread_data->async_stop_t, async_send_stop);
+        client_thread_data->async_stop_t->data = client_thread_data->work_loop;
+        uv_async_init(client_thread_data->work_loop, client_thread_data->async_stop_t, async_send_stop_loop);
     }
     return uvrpc_client;
 }
@@ -507,11 +526,6 @@ int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id
     result = (int) client_thread_data->ret_result;
     bq_push(client->bq, client_thread_data);
     return result;
-}
-
-void _uv_walk_close_all(uv_handle_t *handle, void *args) {
-    if (!uv_is_closing(handle))
-        uv_close(handle, _free_handle);
 }
 
 int stop_client(uvrpcc_t *client) {

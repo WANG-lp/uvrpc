@@ -4,9 +4,17 @@
 #include "../../include/uvrpc.h"
 #include <unistd.h>
 #include <pthread.h>
-
 #include <stdlib.h>
 #include <string.h>
+
+void *pthread_stop_server(void *args) {
+    uvrpcs_t *server = args;
+
+    sleep(3600);// stop server after 1 hour
+    stop_server(server);
+    printf("after stop_server\n");
+
+}
 
 int32_t print_buf(const char *buf, size_t length) {
 
@@ -28,7 +36,7 @@ int32_t not_register(const char *buf, size_t length) {
 }
 
 int main(int argc, char **argv) {
-    uvrpcs_t *uvrpcs = init_server("localhost", 8080, 1);
+    uvrpcs_t *uvrpcs = start_server("localhost", 8080, 1);
 
     //here we register 3 rpc functions
     int ret = register_function(uvrpcs, 0, print_buf);
@@ -45,8 +53,14 @@ int main(int argc, char **argv) {
         printf("error: %s\n", uvrpc_errstr(ret));
     }
 
+    pthread_t tid;
+    //create a thread to stop the server after 1 hour
+    pthread_create(&tid, NULL, pthread_stop_server, uvrpcs);
+
     //start the server forever!
-    run_server_forever(uvrpcs);
+    wait_server_forever(uvrpcs);
+
+    pthread_join(tid, NULL);
 
     return 0;
 }

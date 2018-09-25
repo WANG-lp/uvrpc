@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.4.3)
 project(uvrpc C)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH}) # To allow CMake to locate our Find*.cmake files
 set(CMAKE_C_STANDARD 11)
-add_compile_options(-g -O1)
+add_compile_options(-O2)
 
 include(TestBigEndian)
 TEST_BIG_ENDIAN(IS_BIG_ENDIAN)
