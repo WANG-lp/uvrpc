@@ -13,7 +13,7 @@
 #define DEFAULT_BACKLOG 4096
 #define MAX_TCP_BUFFER_SIZE (4096)
 #define REQ_HEADER_LENGTH (19)
-#define REP_HEADER_LENGTH (15)
+#define REP_HEADER_LENGTH (23)
 
 struct _uvrpc_server_thread_s {
     uvrpcs_t *uvrpcs;
@@ -39,6 +39,8 @@ struct _uvrpc_client_thread_s {
     char *send_buf;
     size_t send_length;
 
+    char *result_buf;
+    size_t result_length;
     uint64_t result_req_id;
     int32_t ret_result;
     uv_mutex_t *result_mutex;
@@ -98,7 +100,8 @@ _uvrpc_server_msg_t *_make_new_msg(uint64_t req_id, size_t size, unsigned char f
 }
 
 void _free_msg(_uvrpc_server_msg_t *msg) {
-    free(msg->buf);
+    if (msg->buf != NULL)
+        free(msg->buf);
     free(msg);
 }
 
@@ -117,14 +120,13 @@ void _close_server_connection(uv_handle_t *handle) {
     free(handle);
 }
 
-void alloc_new_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
-    buf->base = malloc(sizeof(char) * suggested_size);
-    buf->len = suggested_size;
-}
-
 void reuse_client_thread_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     _uvrpc_client_thread_t *client_thread_data = handle->data;
-
+    if (client_thread_data->buf == NULL) {
+        client_thread_data->buf = malloc(sizeof(char) * MAX_TCP_BUFFER_SIZE);
+        client_thread_data->max_length = MAX_TCP_BUFFER_SIZE;
+        client_thread_data->current_length = 0;
+    }
     buf->base = client_thread_data->buf + client_thread_data->current_length;
     buf->len = client_thread_data->max_length - client_thread_data->current_length;
 }
@@ -148,19 +150,31 @@ void _server_after_write_response(uv_write_t *write_req, int status) {
 
 void _server_run_func(_uvrpc_req_object_t *req_object, _uv_rpc_server_connection_t *client_connection,
                       _uvrpc_server_msg_t *msg) {
+
+    char *out_buf = NULL;
+    size_t out_length = 0;
+
     int32_t ret = (*(client_connection->uvrpc_server_thread_s->uvrpcs->register_func_table[msg->func_id]))(
             msg->buf + REQ_HEADER_LENGTH,
-            msg->current_length - REQ_HEADER_LENGTH);
+            msg->current_length - REQ_HEADER_LENGTH, &out_buf, &out_length);
 
-    char *result = malloc(sizeof(char) * 15);
+    char *result = malloc(sizeof(char) * (REP_HEADER_LENGTH + out_length));
     uint16_to_bytes(UVRPC_MAGIC, (unsigned char *) result);
     result[2] = msg->func_id;
     uint64_to_bytes(msg->req_id, (unsigned char *) (result + 3));
     uint32_to_bytes((uint32_t) ret, (unsigned char *) (result + 11));
+    uint64_to_bytes(out_length, (unsigned char *) (result + 15));
+
+    if (out_buf != NULL && out_length > 0) {
+        memcpy(result + REP_HEADER_LENGTH, out_buf, out_length);
+    }
+
+    if (out_buf != NULL)
+        free(out_buf);
 
     req_object->result_buf = result;
     req_object->ret_code = ret;
-    req_object->result_length = REP_HEADER_LENGTH;
+    req_object->result_length = REP_HEADER_LENGTH + out_length;
 }
 
 void _after_worker_finish(uv_work_t *req, int status) {
@@ -294,7 +308,8 @@ void async_send_stop_loop(uv_async_t *handle) {
     uv_stop(work_loop);
 }
 
-int32_t __return_error(const char *buf, size_t length) {
+int32_t __return_error(const char *buf, size_t length, char **out_buf, size_t *out_length) {
+    *out_length = 0;
     return 255;
 }
 
@@ -337,7 +352,8 @@ int wait_server_forever(uvrpcs_t *server) {
     return 0;
 }
 
-int register_function(uvrpcs_t *uvrpc_server, unsigned char magic, int32_t (*func)(const char *, size_t)) {
+int register_function(uvrpcs_t *uvrpc_server, unsigned char magic,
+                      int32_t (*func)(const char *, size_t, char **, size_t *)) {
     if (magic < 255 && magic >= 0) {
         if (uvrpc_server->register_func_table[magic] != NULL) {
             return 0xee01;
@@ -399,19 +415,36 @@ void _client_after_read_result(uv_stream_t *stream, ssize_t nread, const uv_buf_
         }
         if (client_thread_data->current_length < REP_HEADER_LENGTH)
             return;
+
+        uint64_t out_length = bytes_to_uint64((unsigned char *) (client_thread_data->buf + 15));
+        if (client_thread_data->max_length < out_length + REP_HEADER_LENGTH) {
+            client_thread_data->buf = realloc(client_thread_data->buf, sizeof(char) * (REP_HEADER_LENGTH + out_length));
+            client_thread_data->max_length = REP_HEADER_LENGTH + out_length;
+        }
+        if (client_thread_data->current_length < REP_HEADER_LENGTH + out_length) {
+            return;
+        }
+
+
         unsigned char func_id = (unsigned char) client_thread_data->buf[2];
         uint64_t req_id = bytes_to_uint64((unsigned char *) (client_thread_data->buf + 3));
         int32_t result = (int32_t) bytes_to_uint32((unsigned char *) (client_thread_data->buf + 11));
 
         //printf("func_if: %d, req_id: %ld, ret_code: %d\n", func_id, req_id, result);
 
+        client_thread_data->result_buf = malloc(sizeof(char) * out_length);
+        memcpy(client_thread_data->result_buf, client_thread_data->buf + REP_HEADER_LENGTH, out_length);
+        client_thread_data->result_length = out_length;
+
+        free(client_thread_data->buf);
+        client_thread_data->buf = NULL;
+        client_thread_data->max_length = client_thread_data->current_length = 0;
+
         uv_mutex_lock(client_thread_data->result_mutex);
         client_thread_data->result_req_id = req_id;
         client_thread_data->ret_result = result;
         uv_mutex_unlock(client_thread_data->result_mutex);
         uv_cond_signal(client_thread_data->result_cond);
-
-        client_thread_data->current_length = 0;
 
     } else if (nread < 0) {
         if (nread != UV_EOF) {
@@ -506,14 +539,12 @@ uvrpcc_t *start_client(char *server_URL, int port, int thread_num) {
         client_thread_data->thread_id = i;
         client_thread_data->uvrpcc = uvrpc_client;
         client_thread_data->ret_result = -1;
+        client_thread_data->buf = NULL;
         client_thread_data->result_req_id = UINT64_MAX;
         client_thread_data->result_cond = malloc(sizeof(uv_cond_t));
         client_thread_data->result_mutex = malloc(sizeof(uv_mutex_t));
         uv_mutex_init(client_thread_data->result_mutex);
         uv_cond_init(client_thread_data->result_cond);
-        client_thread_data->buf = malloc(sizeof(char) * MAX_TCP_BUFFER_SIZE);
-        client_thread_data->max_length = MAX_TCP_BUFFER_SIZE;
-        client_thread_data->current_length = 0;
         uv_thread_create(&(uvrpc_client->base.tids[i]), client_cb, client_thread_data);
         uvrpc_client->base.thread_data[i] = client_thread_data;
         bq_push(uvrpc_client->bq, client_thread_data);
@@ -547,7 +578,7 @@ char *_client_make_request(char *buf, size_t length, unsigned char func_id, size
     return internal_buf;
 }
 
-int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id) {
+int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id, char **out_buf, size_t *out_length) {
     _uvrpc_client_thread_t *client_thread_data = bq_pull(client->bq);
 
     size_t new_length;
@@ -568,6 +599,14 @@ int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id
         uv_mutex_unlock(client_thread_data->result_mutex);
     }
     free(internal_buf);
+    if (out_buf != NULL && out_length != NULL) {
+        *out_buf = client_thread_data->result_buf;
+        *out_length = client_thread_data->result_length;
+    } else {
+        free(client_thread_data->result_buf);
+    }
+
+    client_thread_data->result_buf = NULL;
     result = (int) client_thread_data->ret_result;
     bq_push(client->bq, client_thread_data);
     return result;
@@ -591,7 +630,6 @@ int stop_client(uvrpcc_t *client) {
         free(client_thread_data->result_cond);
         uv_mutex_destroy(client_thread_data->result_mutex);
         free(client_thread_data->result_mutex);
-        free(client_thread_data->buf);
 
         free(client_thread_data->server_conn);
         free(client_thread_data->work_loop);

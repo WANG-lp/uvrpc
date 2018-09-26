@@ -10,16 +10,16 @@ int main(int argc, char **argv) {
     uvrpcc_t *uvrpcc = start_client("localhost", 8080, 4);
 
     char buf[] = "hello, world!";
-    srand(time(NULL));
+
+    char *out_buf = NULL;
+    size_t out_length = 0;
 
     for (int i = 0; i < 10; i++) {
-        int rand_n = rand();
-        unsigned char func_id;
+        int ret = uvrpc_send(uvrpcc, buf, 13, 3, &out_buf, &out_length);
+        printf("ret: %d, buf: %.*s\n", ret, (int) out_length, out_buf);
 
-        func_id = rand_n % 3;
-
-        int ret = uvrpc_send(uvrpcc, buf, 13, func_id, NULL, NULL);
-        printf("ret: %d\n", ret);
+        if(out_buf)
+            free(out_buf); //remember to free memory here!
     }
 
     stop_client(uvrpcc);

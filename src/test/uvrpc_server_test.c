@@ -16,22 +16,22 @@ void *pthread_stop_server(void *args) {
 
 }
 
-int32_t print_buf(const char *buf, size_t length) {
+int32_t print_buf(const char *buf, size_t length, char **out_buf, size_t *out_length) {
 
     char internal_buf[1024];
 
-    memcpy(internal_buf, buf, length);
+    memcpy(internal_buf, buf, length < 1024 ? length : 1024);
 
     printf("recv length: %ld, content: %.13s\n", length, internal_buf);
 
     return 0;
 }
 
-int32_t return1(const char *buf, size_t length) {
+int32_t return1(const char *buf, size_t length, char **out_buf, size_t *out_length) {
     return 1;
 }
 
-int32_t not_register(const char *buf, size_t length) {
+int32_t not_register(const char *buf, size_t length, char **out_buf, size_t *out_length) {
     return 2;
 }
 

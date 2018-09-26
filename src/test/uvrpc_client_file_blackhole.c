@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     int64_t start_time = get_wall_time();
     for (size_t i = 0; i < ITER_NUM; i++) {
         int64_t chunk_start_time = get_wall_time();
-        int ret = uvrpc_send(uvrpcc, buf, FILE_SIZE, 1);
+        int ret = uvrpc_send(uvrpcc, buf, FILE_SIZE, 1, NULL, NULL);
         int64_t chunk_end_time = get_wall_time();
         if(ret != 0){
             continue;

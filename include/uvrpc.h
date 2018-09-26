@@ -24,7 +24,7 @@ struct uvrpcs_s {
     struct uvrpc_s base;
     volatile int status;
 
-    int32_t (*register_func_table[256])(const char *, size_t);
+    int32_t (*register_func_table[256])(const char *, size_t, char**, size_t*);
 
 };
 
@@ -44,7 +44,7 @@ uvrpcs_t *start_server(char *ip, int port, int eventloop_num, int thread_num_per
 int wait_server_forever(uvrpcs_t *server);
 
 // register a RPC-procedure to this server, associate it to a function magic code (0-254)
-int register_function(uvrpcs_t *uvrpc_server, unsigned char magic, int32_t (*func)(const char *, size_t));
+int register_function(uvrpcs_t *uvrpc_server, unsigned char magic, int32_t (*func)(const char *, size_t, char**, size_t*));
 
 // stop the server
 int stop_server(uvrpcs_t *uvrpc_server);
@@ -54,7 +54,7 @@ uvrpcc_t *start_client(char *server_ip, int port, int thread_num);
 
 // call a RPC-procedure (via magic code) with a provided buffer
 // This function is thread-safe (you can invoke it concurrently).
-int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id);
+int uvrpc_send(uvrpcc_t *client, char *buf, size_t length, unsigned char func_id, char** out_buf, size_t *out_length);
 
 // stop the client
 int stop_client(uvrpcc_t *client);

@@ -10,7 +10,7 @@
 
 static __thread size_t total_size = 0;
 
-int32_t file_blackhole(const char *buf, size_t length) {
+int32_t file_blackhole(const char *buf, size_t length, char** out_buf, size_t *out_length) {
     total_size += length;
 
 //    printf("file size %ld\n", total_size);

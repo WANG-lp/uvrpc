@@ -24,7 +24,6 @@ target_link_libraries(uvrpc ${LIBUV_LIBRARIES} Threads::Threads)
 
 add_executable(uvrpc_server src/test/uvrpc_server_test.c include/uvrpc.h)
 target_link_libraries(uvrpc_server uvrpc)
-
 add_executable(uvrpc_client src/test/uvrpc_client_test.c include/uvrpc.h)
 target_link_libraries(uvrpc_client uvrpc)
 
@@ -32,3 +31,9 @@ add_executable(uvrpc_server_blackhole src/test/uvrpc_server_file_blackhole.c inc
 target_link_libraries(uvrpc_server_blackhole uvrpc)
 add_executable(uvrpc_client_blackhole src/test/uvrpc_client_file_blackhole.c include/uvrpc.h)
 target_link_libraries(uvrpc_client_blackhole uvrpc)
+
+add_executable(uvrpc_server_echo src/test/uvrpc_server_echo.c include/uvrpc.h)
+target_link_libraries(uvrpc_server_echo uvrpc)
+add_executable(uvrpc_client_echo src/test/uvrpc_client_echo.c include/uvrpc.h)
+target_link_libraries(uvrpc_client_echo uvrpc)
+
