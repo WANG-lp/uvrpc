@@ -55,29 +55,27 @@ server.c
 /**
  * Copyright 2018 Lipeng WANG (wang.lp@outlook.com)
  */
-#include "../uvrpc.h"
+#include "../../include/uvrpc.h"
 #include <unistd.h>
-#include <pthread.h>
-
 #include <stdlib.h>
 #include <string.h>
 
-int32_t print_buf(const char *buf, size_t length) {
+int32_t print_buf(const char *buf, size_t length, char **out_buf, size_t *out_length) {
 
     char internal_buf[1024];
 
-    memcpy(internal_buf, buf, length);
+    memcpy(internal_buf, buf, length < 1024 ? length : 1024);
 
     printf("recv length: %ld, content: %.13s\n", length, internal_buf);
 
     return 0;
 }
 
-int32_t return1(const char *buf, size_t length) {
+int32_t return1(const char *buf, size_t length, char **out_buf, size_t *out_length) {
     return 1;
 }
 
-int32_t not_register(const char *buf, size_t length) {
+int32_t not_register(const char *buf, size_t length, char **out_buf, size_t *out_length) {
     return 2;
 }
 
@@ -101,7 +99,6 @@ int main(int argc, char **argv) {
 
     //start the server forever!
     wait_server_forever(uvrpcs);
-
     return 0;
 }
 ```
@@ -115,7 +112,7 @@ client.c
 /**
  * Copyright 2018 Lipeng WANG (wang.lp@outlook.com)
  */
-#include "../uvrpc.h"
+#include "../../include/uvrpc.h"
 #include <unistd.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -132,10 +129,9 @@ int main(int argc, char **argv) {
 
         func_id = rand_n % 3;
 
-        int ret = uvrpc_send(uvrpcc, buf, 13, func_id);
+        int ret = uvrpc_send(uvrpcc, buf, 13, func_id, NULL, NULL);
         printf("ret: %d\n", ret);
     }
-
     stop_client(uvrpcc);
     return 0;
 }
