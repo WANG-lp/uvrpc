@@ -36,7 +36,7 @@ int32_t not_register(const char *buf, size_t length) {
 }
 
 int main(int argc, char **argv) {
-    uvrpcs_t *uvrpcs = start_server("localhost", 8080, 1);
+    uvrpcs_t *uvrpcs = start_server("localhost", 8080, 1, 4);
 
     //here we register 3 rpc functions
     int ret = register_function(uvrpcs, 0, print_buf);

@@ -17,8 +17,8 @@ Function list:
 typedef struct uvrpcs_s uvrpcs_t; // the server handle
 typedef struct uvrpcc_s uvrpcc_t; // the client handle
 
-// start a new server with a custom ip, port and thread number
-uvrpcs_t *start_server(char *ip, int port, int thread_num);
+// start a new server with a custom ip, port, eventloop number and thread number per eventloop
+uvrpcs_t *start_server(char *ip, int port, int eventloop_num, int thread_num_per_eventloop);
 
 // run the server forever (this will block the caller thread until other thread calls the stop_server function)!
 int wait_server_forever(uvrpcs_t *server);
@@ -82,7 +82,7 @@ int32_t not_register(const char *buf, size_t length) {
 }
 
 int main(int argc, char **argv) {
-    uvrpcs_t *uvrpcs = init_server("localhost", 8080, 1);
+    uvrpcs_t *uvrpcs = start_server("localhost", 8080, 1, 4);
 
     //here we register 3 rpc functions
     int ret = register_function(uvrpcs, 0, print_buf);
@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
     }
 
     //start the server forever!
-    run_server_forever(uvrpcs);
+    wait_server_forever(uvrpcs);
 
     return 0;
 }

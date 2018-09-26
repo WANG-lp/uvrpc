@@ -37,8 +37,8 @@ struct uvrpcc_s {
 typedef struct uvrpcs_s uvrpcs_t; // the server handle
 typedef struct uvrpcc_s uvrpcc_t; // the client handle
 
-// start a new server with a custom ip, port and thread number
-uvrpcs_t *start_server(char *ip, int port, int thread_num);
+// start a new server with a custom ip, port, eventloop number and thread number per eventloop
+uvrpcs_t *start_server(char *ip, int port, int eventloop_num, int thread_num_per_eventloop);
 
 // run the server forever (this will block the caller thread until other thread calls the stop_server function)!
 int wait_server_forever(uvrpcs_t *server);

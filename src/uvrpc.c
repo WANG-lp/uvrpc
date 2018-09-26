@@ -58,10 +58,19 @@ struct _uv_rpc_server_connection_s {
     struct _uvrpc_server_thread_s *uvrpc_server_thread_s;
 };
 
+struct _uvrpc_req_object_s {
+    uv_stream_t *stream;
+    struct _uvrpc_server_msg_s *msg;
+    char *result_buf;
+    size_t result_length;
+    int32_t ret_code;
+};
+
 typedef struct _uvrpc_server_thread_s _uvrpc_server_thread_t;
 typedef struct _uvrpc_client_thread_s _uvrpc_client_thread_t;
 typedef struct _uvrpc_server_msg_s _uvrpc_server_msg_t;
 typedef struct _uv_rpc_server_connection_s _uv_rpc_server_connection_t;
+typedef struct _uvrpc_req_object_s _uvrpc_req_object_t;
 
 static size_t global_count = 0;
 uv_mutex_t global_mutex;
@@ -137,7 +146,8 @@ void _server_after_write_response(uv_write_t *write_req, int status) {
     free(write_req);
 }
 
-void _server_run_func(uv_stream_t *stream, _uv_rpc_server_connection_t *client_connection, _uvrpc_server_msg_t *msg) {
+void _server_run_func(_uvrpc_req_object_t *req_object, _uv_rpc_server_connection_t *client_connection,
+                      _uvrpc_server_msg_t *msg) {
     int32_t ret = (*(client_connection->uvrpc_server_thread_s->uvrpcs->register_func_table[msg->func_id]))(
             msg->buf + REQ_HEADER_LENGTH,
             msg->current_length - REQ_HEADER_LENGTH);
@@ -148,13 +158,32 @@ void _server_run_func(uv_stream_t *stream, _uv_rpc_server_connection_t *client_c
     uint64_to_bytes(msg->req_id, (unsigned char *) (result + 3));
     uint32_to_bytes((uint32_t) ret, (unsigned char *) (result + 11));
 
-    uv_write_t *write_req = malloc(sizeof(uv_write_t));
-    write_req->data = result;
-    uv_buf_t buf1 = uv_buf_init(result, 15);
+    req_object->result_buf = result;
+    req_object->ret_code = ret;
+    req_object->result_length = REP_HEADER_LENGTH;
+}
 
+void _after_worker_finish(uv_work_t *req, int status) {
+    _uvrpc_req_object_t *req_object = req->data;
+    uv_stream_t *stream = req_object->stream;
+    _uv_rpc_server_connection_t *client_connection = stream->data;
+
+    uv_write_t *write_req = malloc(sizeof(uv_write_t));
+    write_req->data = req_object->result_buf;
+    uv_buf_t buf1 = uv_buf_init(req_object->result_buf, req_object->result_length);
     uv_write(write_req, stream, &buf1, 1, _server_after_write_response);
-    _free_msg(msg);
-    client_connection->msg = NULL;
+
+    free(req_object);
+    free(req);
+}
+
+void _worker_thread_job(uv_work_t *req) {
+    _uvrpc_req_object_t *req_object = req->data;
+    uv_stream_t *stream = req_object->stream;
+    _uv_rpc_server_connection_t *client_connection = stream->data;
+
+    _server_run_func(req_object, client_connection, req_object->msg);
+    _free_msg(req_object->msg);
 }
 
 void _server_read_msg_data(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -194,7 +223,15 @@ void _server_read_msg_data(uv_stream_t *stream, ssize_t nread, const uv_buf_t *b
         if (client_connection->uvrpc_server_thread_s->uvrpcs->register_func_table[msg->func_id] == NULL) {
             msg->func_id = 255;
         }
-        _server_run_func(stream, client_connection, msg);
+        uv_work_t *work_req = malloc(sizeof(uv_work_t));
+        _uvrpc_req_object_t *req_object = malloc(sizeof(_uvrpc_req_object_t));
+        req_object->stream = stream;
+        req_object->msg = msg;
+        work_req->data = req_object;
+
+        uv_queue_work(client_connection->uvrpc_server_thread_s->work_loop, work_req, _worker_thread_job,
+                      _after_worker_finish);
+        client_connection->msg = NULL;
     } else if (nread < 0) {
         if (nread != UV_EOF) {
             printf("Read error %s\n", uv_strerror(nread));
@@ -261,18 +298,21 @@ int32_t __return_error(const char *buf, size_t length) {
     return 255;
 }
 
-uvrpcs_t *start_server(char *ip, int port, int thread_num) {
+uvrpcs_t *start_server(char *ip, int port, int eventloop_num, int thread_num_per_eventloop) {
+    char num_str[128];
+    sprintf(num_str, "%d", thread_num_per_eventloop);
+    uv_os_setenv("UV_THREADPOOL_SIZE", num_str);
     uvrpcs_t *server = malloc(sizeof(uvrpcs_t));
     memset(server->register_func_table, 0, sizeof(int32_t (*[256])(char *, size_t)));
-    server->base.tids = malloc(sizeof(uv_thread_t) * thread_num);;
-    server->base.thread_count = thread_num;
-    server->base.thread_data = malloc(sizeof(void *) * thread_num);
+    server->base.tids = malloc(sizeof(uv_thread_t) * eventloop_num);;
+    server->base.thread_count = eventloop_num;
+    server->base.thread_data = malloc(sizeof(void *) * eventloop_num);
     server->base.addr = malloc(sizeof(struct sockaddr_storage));
     server->status = 0;
 
     uv_ip4_addr(ip, port, (struct sockaddr_in *) server->base.addr);
 
-    for (int i = 0; i < thread_num; i++) {
+    for (int i = 0; i < eventloop_num; i++) {
         _uvrpc_server_thread_t *uvrpc_server_data = malloc(sizeof(_uvrpc_server_thread_t));
         uvrpc_server_data->thread_id = i;
         uvrpc_server_data->uvrpcs = server;
@@ -426,8 +466,13 @@ void client_cb(void *args) {
 }
 
 void _client_after_send(uv_write_t *write1, int status) {
+    _uvrpc_client_thread_t *client_thread_data = write1->data;
     if (status != 0) {
         printf("write to server failed. %s\n", uv_strerror(status));
+
+        client_thread_data->ret_result = 255;
+        uv_cond_broadcast(client_thread_data->result_cond);
+
     }
     free(write1);
 }
@@ -438,7 +483,7 @@ void async_send_to_server(uv_async_t *handle) {
 
     uv_buf_t uvbuf = uv_buf_init(client_thread_data->send_buf, client_thread_data->send_length);
 
-    write_req->data = client_thread_data->send_buf;
+    write_req->data = client_thread_data;
     uv_write(write_req, (uv_stream_t *) client_thread_data->tcp_server, &uvbuf, 1, _client_after_send);
 }
 

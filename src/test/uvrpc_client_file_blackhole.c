@@ -37,6 +37,9 @@ int main(int argc, char **argv) {
         int64_t chunk_start_time = get_wall_time();
         int ret = uvrpc_send(uvrpcc, buf, FILE_SIZE, 1);
         int64_t chunk_end_time = get_wall_time();
+        if(ret != 0){
+            continue;
+        }
         if(i % 100 == 0) {
             double chunk_time = (chunk_end_time - chunk_start_time) / 1000.0;
             printf("time: %lfms, send size %ld, speed: %.3lfGB/s, ret: %d\n", chunk_time, FILE_SIZE,
